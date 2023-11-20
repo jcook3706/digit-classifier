@@ -1,0 +1,2 @@
+Best run so far:
+	Test Accuracy: 0.9901, Test Loss: 0.0347
