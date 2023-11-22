@@ -34,7 +34,6 @@ def evaluate(model, val_loader, criterion):
     avg_loss = running_loss / len(val_loader)
     return accuracy, avg_loss
 
-# Check for CUDA availability
 # Check if CUDA (GPU support) is available
 if torch.cuda.is_available():
     device = torch.device("cuda")  # Device object for GPU
@@ -101,10 +100,11 @@ class Net(nn.Module):
 
 # Create an instance of the network
 net = Net()
+net.to(device)
 
 # Define the loss function, optimizer, and scheduler
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, verbose=True)
 # Show performance of model on validation partition before training
 valAccuracy, valLoss = evaluate(net, valLoader, criterion)
@@ -113,8 +113,11 @@ print(f'Validation Accuracy: {valAccuracy:.4f}, Validation Loss: {valLoss:.4f}')
 # Train the network
 for epoch in range(numEpochs):  # Loop over the dataset multiple times
     running_loss = 0.0
+    net.train()
     for i, data in enumerate(trainLoader, 0):
         inputs, labels = data
+        inputs.to(device)
+        labels.to(device)
         optimizer.zero_grad()  # Zero the parameter gradients
         outputs = net(inputs)
         loss = criterion(outputs, labels)
