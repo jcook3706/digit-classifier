@@ -4,6 +4,9 @@ import torchvision.transforms as transforms
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import time
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Parameters and variables
 numEpochs = 100
@@ -21,7 +24,7 @@ def evaluate(model, val_loader, criterion):
 
     with torch.no_grad():
         for images, labels in val_loader:
-            # images, labels = images.to(device), labels.to(device)
+            images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             loss = criterion(outputs, labels)
             running_loss += loss.item()
@@ -83,46 +86,40 @@ testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True
 print(f'Testset size: {testset.__len__()}')
 testLoader = torch.utils.data.DataLoader(testset, batch_size=32, shuffle=False)
 
-# Define the CNN model
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, 3, padding=1)
-        self.conv1s = nn.Conv2d(64, 64, 3, padding=1)
+        self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
+        self.conv1s = nn.Conv2d(32, 32, 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(64, 128, 3, padding=1)
-        self.conv2s = nn.Conv2d(128, 128, 3, padding=1)
-        self.conv3 = nn.Conv2d(128, 256, 3, padding=1)
-        self.conv3s = nn.Conv2d(256, 256, 3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.conv2s = nn.Conv2d(64, 64, 3, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
+        self.conv3s = nn.Conv2d(128, 128, 3, padding=1)
         self.conv4 = nn.Conv2d(3, 16, 3, padding=1)
-        self.fc1 = nn.Linear(256 * 4 * 4, 512)
+        self.fc1 = nn.Linear(128 * 4 * 4, 512)
         self.fc2 = nn.Linear(512, 512)
         self.fc3 = nn.Linear(512, 10)
         self.dropout1 = nn.Dropout(p=0.5)
         self.dropout2 = nn.Dropout(p=0.3)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
+        x = self.pool(F.relu(self.conv1(x)))
         x = F.relu(self.conv1s(x))
-        x = self.pool(F.relu(self.conv1s(x)))
-        x = F.relu(self.conv2(x))
+        x = self.pool(F.relu(self.conv2(x)))
         x = F.relu(self.conv2s(x))
-        x = self.pool(F.relu(self.conv2s(x)))
-        x = F.relu(self.conv3(x))
+        x = self.pool(F.relu(self.conv3(x)))
         x = F.relu(self.conv3s(x))
-        x = self.pool(F.relu(self.conv3s(x)))
-        x = x.view(-1, 256 * 4 * 4)
+        x = x.view(-1, 128 * 4 * 4)
         # x = torch.flatten(x, start_dim=1)
         x = F.relu(self.fc1(x))
-        x = self.dropout2(x)
-        x = F.relu(self.fc2(x))
         x = self.dropout2(x)
         x = self.fc3(x)
         return x
 
 # Create an instance of the network
 net = Net()
-# net.to(device)
+net.to(device)
 
 # Define the loss function, optimizer, and scheduler
 criterion = nn.CrossEntropyLoss()
@@ -134,13 +131,19 @@ valAccuracy, valLoss = evaluate(net, valLoader, criterion)
 print(f'Validation Accuracy: {valAccuracy:.4f}, Validation Loss: {valLoss:.4f}')
 
 # Train the network
+start_time = time.time()
+train_losses = []
+validation_losses = []
+num_total_epochs = 0
 for epoch in range(numEpochs):  # Loop over the dataset multiple times
+    num_total_epochs += 1
+    last_time = time.time()
     running_loss = 0.0
     net.train()
     for i, data in enumerate(trainLoader, 0):
         inputs, labels = data
-        # inputs.to(device)
-        # labels.to(device)
+        inputs.to(device)
+        labels.to(device)
         optimizer.zero_grad()  # Zero the parameter gradients
         outputs = net(inputs)
         loss = criterion(outputs, labels)
@@ -150,8 +153,13 @@ for epoch in range(numEpochs):  # Loop over the dataset multiple times
         if i % 1000 == 999:  # Print every 1000 mini-batches
             print(f'Epoch {epoch + 1}, Mini-batch {i + 1}, Loss: {running_loss / 1000:.4f}')
             running_loss = 0.0
+    print(f'Time for training epoch {epoch+1}: {(time.time()-last_time):4f}')
+
+    trainAccuracy, trainLoss = evaluate(net, trainLoader, criterion)
+    train_losses.append(trainLoss)
 
     valAccuracy, valLoss = evaluate(net, valLoader, criterion)
+    validation_losses.append(valLoss)
     print(f'Validation Accuracy: {valAccuracy:.4f}, Validation Loss: {valLoss:.4f}')
 
     # Check for early stopping
@@ -167,13 +175,24 @@ for epoch in range(numEpochs):  # Loop over the dataset multiple times
     # Scheduler Step
     scheduler.step(valLoss)
 
-print('Finished Training')
+print(f'Time to train CNN classifier on training partition of CIFAR10: {(time.time()-start_time):.4f} seconds')
 
 # Save the trained model
 # PATH = './mnist_cnn.pth'
 # torch.save(net.state_dict(), PATH)
 
-# TODO: Test on the testset
-
+# Test on the testset
+start_time = time.time()
 testAccuracy, testLoss = evaluate(net, testLoader, criterion)
+print(f'Time to run inference on the test partition of MNIST: {(time.time()-start_time):.4f} seconds')
 print(f'Test Accuracy: {testAccuracy:.4f}, Test Loss: {testLoss:.4f}')
+
+# Graph train and test loss
+x = np.linspace(0, num_total_epochs, num_total_epochs)
+plt.plot(x, train_losses, color='red', label="Training Loss")
+plt.plot(x, validation_losses, color='blue', label="Validation Loss")
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.title('Loss During Model Training')
+plt.show()

@@ -4,6 +4,9 @@ import torchvision.transforms as transforms
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import time
+import numpy as np
+import matplotlib.pyplot as plt
 
 # Parameters and variables
 numEpochs = 100
@@ -21,7 +24,7 @@ def evaluate(model, val_loader, criterion):
 
     with torch.no_grad():
         for images, labels in val_loader:
-            # images, labels = images.to(device), labels.to(device)
+            images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             loss = criterion(outputs, labels)
             running_loss += loss.item()
@@ -70,23 +73,23 @@ print(f'Trainset size: {trainset.__len__()}')
 print(f'Valset size: {valset.__len__()}')
 
 # Create training and validation dataloaders
-trainLoader = torch.utils.data.DataLoader(trainset, batch_size=32, shuffle=True)
-valLoader = torch.utils.data.DataLoader(valset, batch_size=32, shuffle=True)
+trainLoader = torch.utils.data.DataLoader(trainset, batch_size=4096, shuffle=True)
+valLoader = torch.utils.data.DataLoader(valset, batch_size=4096, shuffle=True)
 
 testset = torchvision.datasets.MNIST(root='./data', train=False, download=True, transform=transform)
 print(f'Testset size: {testset.__len__()}')
-testLoader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False)
+testLoader = torch.utils.data.DataLoader(testset, batch_size=4096, shuffle=False)
 
 # Define the CNN model
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 6, 5)
+        self.conv1 = nn.Conv2d(1, 8, 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 4 * 4, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
+        self.conv2 = nn.Conv2d(8, 16, 3, padding=1)
+        self.fc1 = nn.Linear(16 * 7 * 7, 64)
+        self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32, 10)
 
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
@@ -100,7 +103,7 @@ class Net(nn.Module):
 
 # Create an instance of the network
 net = Net()
-net.to(device)
+net = net.to(device)
 
 # Define the loss function, optimizer, and scheduler
 criterion = nn.CrossEntropyLoss()
@@ -111,13 +114,19 @@ valAccuracy, valLoss = evaluate(net, valLoader, criterion)
 print(f'Validation Accuracy: {valAccuracy:.4f}, Validation Loss: {valLoss:.4f}')
 
 # Train the network
+num_total_epochs = 0
+train_losses = [evaluate(net, trainLoader, criterion)[1]]
+validation_losses = [evaluate(net, valLoader, criterion)[1]]
+startTime = time.time()
 for epoch in range(numEpochs):  # Loop over the dataset multiple times
+    num_total_epochs += 1
+    lastTime = time.time()
     running_loss = 0.0
     net.train()
     for i, data in enumerate(trainLoader, 0):
         inputs, labels = data
-        inputs.to(device)
-        labels.to(device)
+        inputs = inputs.to(device)
+        labels = labels.to(device)
         optimizer.zero_grad()  # Zero the parameter gradients
         outputs = net(inputs)
         loss = criterion(outputs, labels)
@@ -127,9 +136,14 @@ for epoch in range(numEpochs):  # Loop over the dataset multiple times
         if i % 1000 == 999:  # Print every 1000 mini-batches
             print(f'Epoch {epoch + 1}, Mini-batch {i + 1}, Loss: {running_loss / 1000:.3f}')
             running_loss = 0.0
-
+    print(f'Time for training epoch {epoch+1}: {(time.time()-lastTime):4f}')
+    trainAccuracy, trainLoss = evaluate(net, trainLoader, criterion)
+    train_losses.append(trainLoss)
+    lastTime = time.time()
     valAccuracy, valLoss = evaluate(net, valLoader, criterion)
+    validation_losses.append(valLoss)
     print(f'Validation Accuracy: {valAccuracy:.4f}, Validation Loss: {valLoss:.4f}')
+    print(f'Time for validation inference: {(time.time()-lastTime):.4f}')
 
     # Check for early stopping
     if valLoss < bestValLoss:
@@ -138,19 +152,30 @@ for epoch in range(numEpochs):  # Loop over the dataset multiple times
     else:
         earlyStoppingCount += 1
         if earlyStoppingCount > earlyStoppingPatience:
-            print(f'Early sotpping now, validation loss not improved in {earlyStoppingPatience} epochs.')
+            print(f'Early stopping now, validation loss not improved in {earlyStoppingPatience} epochs.')
             break
     
     # Scheduler Step
     scheduler.step(valLoss)
 
-print('Finished Training')
+print(f'Time to train CNN classifier on training partition of MNIST: {(time.time()-startTime):.4f} seconds')
 
 # Save the trained model
 # PATH = './mnist_cnn.pth'
 # torch.save(net.state_dict(), PATH)
 
-# TODO: Test on the testset
-
+# Test on the testset
+startTime = time.time()
 testAccuracy, testLoss = evaluate(net, testLoader, criterion)
+print(f'Time to run inference on the test partition of MNIST: {(time.time()-startTime):.4f} seconds')
 print(f'Test Accuracy: {testAccuracy:.4f}, Test Loss: {testLoss:.4f}')
+
+# Graph train and test loss
+x = np.linspace(0, num_total_epochs, num_total_epochs)
+plt.plot(x, train_losses, color='red', label="Training Loss")
+plt.plot(x, validation_losses, color='blue', label="Validation Loss")
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.title('Loss During Model Training')
+plt.show()
